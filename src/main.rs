@@ -9,6 +9,10 @@ use async_std::task;
 use surf;
 use std::error::Error;
 use std::io;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::io::prelude::*;
+
 
 type CrawlResult = Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>;
 type BoxFuture = std::pin::Pin<Box<dyn std::future::Future<Output=CrawlResult> + Send>>;
@@ -23,6 +27,7 @@ impl TokenSink for &mut Links {
 
   // <a href="link">some text</a>
   fn process_token(&mut self, token: Token, line_number: u64) -> TokenSinkResult<Self::Handle> {
+
     match token {
       TagToken(
         ref tag @ Tag {
@@ -30,6 +35,7 @@ impl TokenSink for &mut Links {
           ..
         },
       ) => {
+        println!("Je rentre dans processtoken");
         if tag.name.as_ref() == "a" {
           for attribute in tag.attrs.iter() {
             if attribute.name.local.as_ref() == "href" {
@@ -65,8 +71,8 @@ pub fn get_links(url: &Url, page: String) -> Vec<Url> {
     .collect()
 }
 
-fn box_crawl(pages: Url, current: u8, max: u8) -> BoxFuture {
-  Box::pin(crawl(pages, current, max))
+fn box_crawl(url: Url, current: u8, max: u8) -> BoxFuture {
+  Box::pin(crawl(url, current, max))
 }
 
 async fn crawl(url: Url, current: u8, max: u8) -> CrawlResult {
@@ -75,16 +81,27 @@ async fn crawl(url: Url, current: u8, max: u8) -> CrawlResult {
     println!("Reached Max Depth");
     return Ok(());
   }
-  println!("crawling: {:?}", url);
   let task = task::spawn(async move {
     let mut body = surf::get(&url).recv_string().await?;
     let links = get_links(&url, body);
-
-    println!("Following: {:?}", links);
+    for link in links {
+      write_link_in_file(&link);
+    }
     box_crawl(url, current + 1, max).await
   });
   task.await?;
   Ok(())
+}
+
+fn write_link_in_file(url: &Url){
+  let mut file = OpenOptions::new()
+    .write(true)
+    .append(true)
+    .open("links.txt")
+    .unwrap();
+  if let Err(e) = writeln!(file, "{}", url.to_string()) {
+    eprintln!("Couldn't write to file: {}", e);
+  }
 }
 
 fn read_file() -> Result<Vec<String>, Box<dyn Error>> {
@@ -102,7 +119,7 @@ fn main() {
   let urls = read_file();
   for url in urls.unwrap() {
     task::block_on(async {
-      box_crawl(Url::parse(&url).unwrap(), 1, 10).await
+      box_crawl(Url::parse(&url).unwrap(), 1, 5).await
     });
   }
 }
