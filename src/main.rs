@@ -9,9 +9,8 @@ use async_std::task;
 use surf;
 use std::error::Error;
 use std::io;
-use std::fs::{File, OpenOptions};
+use std::fs::{OpenOptions};
 use std::io::Write;
-use std::io::prelude::*;
 
 
 type CrawlResult = Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>;
@@ -25,9 +24,7 @@ struct Links {
 impl TokenSink for &mut Links {
   type Handle = ();
 
-  // <a href="link">some text</a>
-  fn process_token(&mut self, token: Token, line_number: u64) -> TokenSinkResult<Self::Handle> {
-
+  fn process_token(&mut self, token: Token, _line_number: u64) -> TokenSinkResult<Self::Handle> {
     match token {
       TagToken(
         ref tag @ Tag {
@@ -35,13 +32,11 @@ impl TokenSink for &mut Links {
           ..
         },
       ) => {
-        println!("Je rentre dans processtoken");
         if tag.name.as_ref() == "a" {
           for attribute in tag.attrs.iter() {
             if attribute.name.local.as_ref() == "href" {
               let url_str: &[u8] = attribute.value.borrow();
-              self.links
-                .push(String::from_utf8_lossy(url_str).into_owned());
+              self.links.push(String::from_utf8_lossy(url_str).into_owned());
             }
           }
         }
@@ -76,15 +71,14 @@ fn box_crawl(url: Url, current: u8, max: u8) -> BoxFuture {
 }
 
 async fn crawl(url: Url, current: u8, max: u8) -> CrawlResult {
-  println!("Current Depth: {}, Max Depth: {}", current, max);
   if current > max {
-    println!("Reached Max Depth");
     return Ok(());
   }
   let task = task::spawn(async move {
-    let mut body = surf::get(&url).recv_string().await?;
+    let body = surf::get(&url).recv_string().await?;
     let links = get_links(&url, body);
     for link in links {
+      println!("Writting in file {}", &link.to_string());
       write_link_in_file(&link);
     }
     box_crawl(url, current + 1, max).await
@@ -119,7 +113,7 @@ fn main() {
   let urls = read_file();
   for url in urls.unwrap() {
     task::block_on(async {
-      box_crawl(Url::parse(&url).unwrap(), 1, 5).await
+      box_crawl(Url::parse(&url).unwrap(), 1, 5).await;
     });
   }
 }
